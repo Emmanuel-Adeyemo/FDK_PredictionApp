@@ -22,7 +22,7 @@ app.layout = html.Div([
     dbc.NavbarSimple(children=[
         dbc.NavItem(dbc.NavLink('Training & Validation Insights', href='/train')),
         dbc.NavItem(dbc.NavLink('Prediction', href='/predict'))
-    ], brand=html.A('FDK Prediction App', href='/'), color='primary', dark=True),
+    ], brand=html.A('FDK Prediction App', href='/', style={'textDecoration': 'none', 'color': 'white'}), color='primary', dark=True),
     html.Div(id='page-content')
 
 ])
