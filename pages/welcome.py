@@ -32,6 +32,6 @@ layout = html.Div([
 
         ], className='text-left'),
 
-        dbc.Button('Get Started', href='/data', color='primary', className='mx-auto shadow-lg')
+        dbc.Button('Get Started', href='/train', color='primary', className='mx-auto shadow-lg')
     ], className='mt-5')
 ])
