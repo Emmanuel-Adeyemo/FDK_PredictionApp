@@ -9,9 +9,11 @@ import pages.prediction as prediction
 
 
 app = dash.Dash(__name__, suppress_callback_exceptions=True, external_stylesheets=[dbc.themes.SLATE])
+server = app.server
+
 app.title = 'FDK Prediction App'
 
-server = app.server
+
 
 # Layout
 app.layout = html.Div([
