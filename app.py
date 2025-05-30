@@ -7,13 +7,14 @@ import pages.welcome as welcome
 import pages.train_val as train_val
 import pages.prediction as prediction
 
+from components.footer import footer
 
-app = dash.Dash(__name__, suppress_callback_exceptions=True, external_stylesheets=[dbc.themes.SLATE])
+font_awesome = "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+
+app = dash.Dash(__name__, suppress_callback_exceptions=True, external_stylesheets=[dbc.themes.SLATE, font_awesome])
 server = app.server
 
 app.title = 'FDK Prediction App'
-
-
 
 # Layout
 app.layout = html.Div([
@@ -22,8 +23,11 @@ app.layout = html.Div([
     dbc.NavbarSimple(children=[
         dbc.NavItem(dbc.NavLink('Training & Validation Insights', href='/train')),
         dbc.NavItem(dbc.NavLink('Prediction', href='/predict'))
-    ], brand=html.A('FDK Prediction App', href='/', style={'textDecoration': 'none', 'color': 'white'}), color='primary', dark=True),
-    html.Div(id='page-content')
+    ], brand=html.A('FDK Prediction App', href='/', style={'textDecoration': 'none', 'color': 'white'}),
+        color='primary', dark=True),
+    html.Div(id='page-content'),
+
+    footer
 
 ])
 
@@ -31,7 +35,6 @@ app.layout = html.Div([
 # Page Nav callbacks
 @dash.callback(Output('page-content', 'children'), [Input('url', 'pathname')])
 def display_page(pathname):
-
     if pathname == '/train':
         return train_val.layout
     elif pathname == '/predict':

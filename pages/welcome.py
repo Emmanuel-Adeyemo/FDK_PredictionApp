@@ -27,8 +27,8 @@ layout = html.Div([
                    "above sample."),
             html.P("5. A set of 747 images were randomly split (80:20) for training and validation, "
                    "with an additional 150 set aside for testing."),
-            html.P("6. The model, based on EfficientNet B2 architecture, achieved an R-squared of 0.73 and MAE of "
-                   "7.27 on validation."),
+            html.P("6. The model, based on EfficientNet B2, achieved an R2 of 0.73 and MAE of "
+                   "7.27 on validation. On the test, model reached an R2 of 0.68 and MAE of 8.15.")
 
         ], className='text-left'),
 
