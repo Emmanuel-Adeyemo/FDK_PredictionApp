@@ -1,13 +1,15 @@
+import random
+
 import dash
-from dash import dcc, html, dash_table, ctx
 import dash_bootstrap_components as dbc
-from dash.dependencies import Input, Output, State
+import numpy as np
 import pandas as pd
 import plotly.express as px
-import random
-import numpy as np
-from sklearn.linear_model import LinearRegression
+import plotly.graph_objects as go
+from dash import dcc, html, ctx
+from dash.dependencies import Input, Output
 from sklearn.metrics import r2_score, mean_absolute_error
+from scipy.stats import pearsonr
 
 # make into four sections
 # 1. dataset overview
@@ -15,20 +17,28 @@ from sklearn.metrics import r2_score, mean_absolute_error
 # 3. validation performance
 # 4. view validation image
 
-loss_dta = pd.read_csv('data/epoch_results_retrain.csv')
-val_dta = pd.read_csv('data/Validation_with_residuals_retrain.csv')
+loss_dta = pd.read_csv('data/epoch_results_huber_7_8.csv')
+val_dta = pd.read_csv('data/Validation_with_residuals_retrain_huber.csv')
 combined_dta = pd.read_csv('data/labels.csv')
 train_dta = pd.read_csv('data/train_only.csv')
+test_dta = pd.read_csv('data/Test_Set_Predictions_Huber.csv')
 
 train_sample_count = len(train_dta['score'])
 val_sample_count = len(val_dta['True_Score'])
+test_sample_count = len(test_dta['True_Score'])
 combined_fdk_mean = np.mean(combined_dta['score'])
 train_mean_fdk_score = np.mean(train_dta['score'])
 val_mean_fdk_score = np.mean(val_dta['True_Score'])
+test_mean_fdk_score = np.mean(test_dta['True_Score'])
 combined_sample_count = len(combined_dta['score'])
 
 validation_r_squared = r2_score(val_dta['True_Score'], val_dta['Predicted_Score'])
 MAE = mean_absolute_error(val_dta['True_Score'], val_dta['Predicted_Score'])
+correlation_val, _ = pearsonr(val_dta['True_Score'], val_dta['Predicted_Score'])
+
+test_r_squared = r2_score(test_dta['True_Score'], test_dta['Predicted_Score'])
+MAE_test = mean_absolute_error(test_dta['True_Score'], test_dta['Predicted_Score'])
+correlation_test, _ = pearsonr(test_dta['True_Score'], test_dta['Predicted_Score'])
 
 #  image list
 
@@ -51,7 +61,7 @@ layout = dbc.Container([
                 html.P(f"Total Samples: {train_sample_count}"),
                 html.P(f"Mean FDK Score: {train_mean_fdk_score:.2f}")
             ])
-        ], style={'width': '21rem'})),
+        ], style={'width': '16rem'})),
 
         dbc.Col(dbc.Card([
             dbc.CardHeader('Validation Dataset'),
@@ -59,15 +69,23 @@ layout = dbc.Container([
                 html.P(f"Total Samples: {val_sample_count}"),
                 html.P(f"Mean FDK Score: {val_mean_fdk_score:.2f}")
             ])
-        ], style={'width': '21rem'})),
+        ], style={'width': '16rem'})),
 
         dbc.Col(dbc.Card([
-            dbc.CardHeader('Combined Dataset'),
+            dbc.CardHeader('Train+Val Dataset'),
             dbc.CardBody([
                 html.P(f'Total Samples: {combined_sample_count}'),
                 html.P(f'Mean FDK Score: {combined_fdk_mean:.2f}')
             ])
-        ], style={'width': '21rem'}))
+        ], style={'width': '16rem'})),
+
+        dbc.Col(dbc.Card([
+            dbc.CardHeader('Test Dataset'),
+            dbc.CardBody([
+                html.P(f'Total Samples: {test_sample_count}'),
+                html.P(f'Mean FDK Score: {test_mean_fdk_score:.2f}')
+            ])
+        ], style={'width': '16rem'}))
     ], className='mb-4'),
 
     # scores histogram
@@ -78,7 +96,8 @@ layout = dbc.Container([
                 id='score_dropdown',
                 options=[{'label': 'Training', 'value': 'train'},
                          {'label': 'Validation', 'value': 'val'},
-                         {'label': 'Combined', 'value': 'combined'}],
+                         {'label': 'Train+Val', 'value': 'combined'},
+                         {'label': 'Test', 'value': 'test'}],
                 value='train',
                 style={
                     'backgroundColor': '#495057',
@@ -94,7 +113,9 @@ layout = dbc.Container([
                 id='metric_dropdown',
                 options=[{'label': 'Loss Curve Plot', 'value': 'loss'},
                          {'label': 'Validation Scatter Plot', 'value': 'val_scatter'},
-                         {'label': 'Residual Plot', 'value': 'residual'}],
+                         {'label': 'Test Scatter Plot', 'value': 'test_scatter'},
+                         {'label': 'Validation Residual Plot', 'value': 'residual'},
+                         {'label': 'Test Residual Plot', 'value': 'residual_test'}],
                 value='loss', style={
                     'backgroundColor': '#495057',
                     'color': 'black'
@@ -143,12 +164,16 @@ def update_distribution_plot(selected_dataset):
                            title=f'FDK Score Distribution ({selected_dataset.title()})',
                            color_discrete_sequence=['#7952B3'])
     elif selected_dataset == 'val':
-        fig = px.histogram(val_dta, x='True_Score', nbins=20,
+        fig = px.histogram(val_dta, x='True_Score', nbins=10,
                            title=f'FDK Score Distribution ({selected_dataset.title()})',
                            color_discrete_sequence=['#7952B3'])
     elif selected_dataset == 'combined':
         fig = px.histogram(combined_dta, x='score', nbins=20,
-                           title=f'FDK Score Distribution ({selected_dataset.title()}',
+                           title='FDK Score Distribution (Train+Val)',
+                           color_discrete_sequence=['#7952B3'])
+    elif selected_dataset == 'test':
+        fig = px.histogram(test_dta, x='True_Score', nbins=10,
+                           title=f'FDK Score Distribution ({selected_dataset.title()})',
                            color_discrete_sequence=['#7952B3'])
     fig.update_layout(bargap=0.1,
                       xaxis_title='True Score',
@@ -172,70 +197,150 @@ def update_metric_plot(selected_metric):
     fig = None
 
     if selected_metric == 'loss':
-        fig = px.line(loss_melted, x='Epoch', y='Loss', color='Loss Type',
-                      title='Training vs Validation Loss Curve',
-                      labels={'Epoch': 'Epochs', 'Loss': 'Loss Value'},
-                      line_shape='spline',
-                      color_discrete_map={'Training Loss': '#7952B3', 'Validation Loss': '#FFC107'})
+        fig = go.Figure()
+
+        # Train Loss
+        fig.add_trace(go.Scatter(
+            x=loss_dta["Epoch"],
+            y=loss_dta["Train Loss"],
+            name="Train Loss",
+            mode="lines",
+            line=dict(color="green")
+        ))
+
+        # Validation Loss
+        fig.add_trace(go.Scatter(
+            x=loss_dta["Epoch"],
+            y=loss_dta["Validation Loss"],
+            name="Validation Loss",
+            mode="lines",
+            line=dict(color="#FFC107")
+        ))
+        # LR
+        fig.add_trace(go.Scatter(
+            x=loss_dta["Epoch"],
+            y=loss_dta["Learning Rate"],
+            name="Learning Rate",
+            yaxis="y2",
+            mode="lines",
+            line=dict(color="#7952B3", dash="dash")
+        ))
 
         fig.update_layout(
-            xaxis_title='Epochs',
-            yaxis_title='Loss',
-            hovermode='x unified')
+            title="Loss Curve with Learning Rate",
+            xaxis_title="Epoch",
+            yaxis_title="Loss",
+            yaxis2=dict(
+                title="Learning Rate",
+                overlaying="y",
+                side="right",
+                showgrid=False
+            ),
+            legend=dict(x=0.6, y=0.99),
+            hovermode="x unified"
+        )
 
     elif selected_metric == 'val_scatter':
-        true_scores = np.array(val_dta['True_Score'])
-        predicted_scores = np.array(val_dta['Predicted_Score'])
 
-        # Pass linear model
-        regressor = LinearRegression()
-        regressor.fit(true_scores.reshape(-1, 1), predicted_scores)
-        regression_line = regressor.predict(true_scores.reshape(-1, 1))
+        # true_scores = np.array(val_dta['True_Score']).flatten()
+        # predicted_scores = np.array(val_dta['Predicted_Score'])
 
-        fig = px.scatter(val_dta, x='True_Score', y='Predicted_Score',
-                         title='True vs Predicted Scores',
-                         labels={'True Score': 'True_Scores', 'Predicted Score': 'Predicted_Score'},
-                         opacity=0.7, hover_data=['ID'])
+        fig = px.scatter(val_dta, y='True_Score', x='Predicted_Score',
+                         title='Predicted vs True Disease Scores',
+                         labels={'Predicted Score': 'Predicted_Score', 'True Score': 'True_Scores'},
+                         opacity=0.7, hover_data=['ID'], color_discrete_sequence=['green'])
 
-        fig.update_traces(marker=dict(color='green'))
+        xymin = min(min(val_dta['True_Score']), min(val_dta['Predicted_Score']), 0)
+        xymax = max(max(val_dta['True_Score']), max(val_dta['Predicted_Score']), 100)
+        line_range = [xymin, xymax]
 
-        fig.add_scatter(x=val_dta['True_Score'], y=regression_line,
-                        mode='lines', line=dict(color='#FFC107'))
+        fig.add_trace(
+            go.Scatter(line=dict(color='#FFC107', dash='dash'), x=line_range, y=line_range, mode='lines',
+                       showlegend=False))
+
+        # fig.add_scatter(x=val_dta['True_Score'], y=regression_line,
+        #                 mode='lines', line=dict(color='#FFC107'))
 
         fig.add_annotation(
-            x=np.mean(val_dta['True_Score']), y=max(val_dta['Predicted_Score']),
-            text=f'R²: {validation_r_squared:.2f}, MAE: {MAE:.2f}',
+            x=10, y=90,
+            text=f'R²: {validation_r_squared:.2f}<br>Corr: {correlation_val:.2f}<br>MAE: {np.round(MAE)}',
             showarrow=False, bgcolor='#272b30', font=dict(color='white', size=14)
         )
 
         fig.update_layout(
-            xaxis_title='True Score',
-            yaxis_title='Predicted Score',
+            yaxis_title='True Score',
+            xaxis_title='Predicted Score',
+            hovermode='closest',
+            showlegend=False)
+
+    elif selected_metric == 'test_scatter':
+        fig = px.scatter(test_dta, y='True_Score', x='Predicted_Score',
+                         title='Predicted vs True Disease Scores',
+                         labels={'Predicted Score': 'Predicted_Score', 'True Score': 'True_Scores'},
+                         opacity=0.7, hover_data=['ID'], color_discrete_sequence=['green'])
+
+        xymin = min(min(test_dta['True_Score']), min(test_dta['Predicted_Score']), 0)
+        xymax = max(max(test_dta['True_Score']), max(test_dta['Predicted_Score']), 100)
+        line_range = [xymin, xymax]
+
+        fig.add_trace(
+            go.Scatter(line=dict(color='#FFC107', dash='dash'), x=line_range, y=line_range, mode='lines',
+                       showlegend=False))
+
+        fig.add_annotation(
+            x=10, y=90,
+            text=f'R²: {test_r_squared:.2f}<br>Corr: {correlation_test:.2f}<br>MAE: {np.round(MAE_test)}',
+            showarrow=False, bgcolor='#272b30', font=dict(color='white', size=14)
+        )
+
+        fig.update_layout(
+            yaxis_title='True Score',
+            xaxis_title='Predicted Score',
             hovermode='closest',
             showlegend=False)
 
     elif selected_metric == 'residual':
 
-        # Create interactive residual scatter plot
-        fig = px.scatter(
-            val_dta, x="True_Score", y="Residual",
-            title="Residuals vs True Scores",
-            labels={"True Score": "True_Scores", "Residual": "Residual"},
-            color_discrete_sequence=['green'],
-            opacity=0.7, hover_data=['ID']
+        residuals = val_dta['Residual']
+        fig = go.Figure()
+        fig.add_trace(go.Histogram(
+            x=residuals, nbinsx=20, marker_color='#7952B3', opacity=0.6, name='Residuals'
+        ))
+
+        fig.add_shape(
+            type='line', x0=0, x1=0, y0=0, y1=1,
+            line=dict(color='#FFC107', dash='dash'),
+            xref='x', yref='paper'
         )
 
-        # residual reference = 0
+        # Update layout
+        fig.update_layout(
+            title="Residuals Distribution (Validataion)",
+            xaxis_title="Residuals",
+            yaxis_title="Frequency",
+            bargap=0.1
+        )
+
+    elif selected_metric == 'residual_test':
+
+        residuals = test_dta['Residual']
+        fig = go.Figure()
+        fig.add_trace(go.Histogram(
+            x=residuals, nbinsx=20, marker_color='#7952B3', opacity=0.6, name='Residuals'
+        ))
+
         fig.add_shape(
-            type="line", x0=min(val_dta["True_Score"]), x1=max(val_dta["True_Score"]),
-            y0=0, y1=0, line=dict(color='#FFC107', dash="dash"), name="Zero Residual Line"
+            type='line', x0=0, x1=0, y0=0, y1=1,
+            line=dict(color='#FFC107', dash='dash'),
+            xref='x', yref='paper'
         )
 
         fig.update_layout(
-            xaxis_title='True Score',
-            yaxis_title='Residual',
-            hovermode='closest',
-            showlegend=False)
+            title="Residuals Distribution (Test)",
+            xaxis_title="Residuals",
+            yaxis_title="Frequency",
+            bargap=0.1
+        )
 
     fig.update_layout(
         template='plotly_dark',

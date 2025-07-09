@@ -25,10 +25,10 @@ layout = html.Div([
                    "samples."),
             html.P("4. Images were captured using a Nikon D300S DSLR camera with a 60mm f/7.1 lens, positioned 37cm "
                    "above sample."),
-            html.P("5. A set of 747 images were randomly split (80:20) for training and validation, "
-                   "with an additional 150 set aside for testing."),
-            html.P("6. The model, based on EfficientNet B2, achieved an R2 of 0.73 and MAE of "
-                   "7.27 on validation. On the test, model reached an R2 of 0.68 and MAE of 8.15.")
+            html.P("5. A set of 801 images were randomly split (80:20) for training and validation, "
+                   "with an additional 156 set aside for testing."),
+            html.P("6. The model, based on EfficientNet B2, achieved an R2 of 0.65 and MAE of "
+                   "9 on validation. On the test, model reached an R2 of 0.61 and MAE of 7.")
 
         ], className='text-left'),
 
