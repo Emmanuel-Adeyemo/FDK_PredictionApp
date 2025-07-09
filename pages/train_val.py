@@ -52,7 +52,7 @@ validation_images = [
 
 # layout
 layout = dbc.Container([
-    html.H2('Training & Validation Insights', className='text-left mt-4 mb-4'),
+    html.H2('Training, Validation & Testing Insights', className='text-left mt-4 mb-4'),
 
     dbc.Row([
         dbc.Col(dbc.Card([
