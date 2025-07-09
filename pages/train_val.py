@@ -192,7 +192,7 @@ def update_distribution_plot(selected_dataset):
 
 @dash.callback(Output('metric_plot', 'figure'), Input('metric_dropdown', 'value'))
 def update_metric_plot(selected_metric):
-    loss_melted = loss_dta.melt(id_vars=['Epoch'], var_name='Loss Type', value_name='Loss')
+    # loss_melted = loss_dta.melt(id_vars=['Epoch'], var_name='Loss Type', value_name='Loss')
 
     fig = None
 
@@ -201,29 +201,19 @@ def update_metric_plot(selected_metric):
 
         # Train Loss
         fig.add_trace(go.Scatter(
-            x=loss_dta["Epoch"],
-            y=loss_dta["Train Loss"],
-            name="Train Loss",
-            mode="lines",
-            line=dict(color="green")
+            x=loss_dta["Epoch"], y=loss_dta["Train Loss"], name="Train Loss",
+            mode="lines", line=dict(color="green")
         ))
 
         # Validation Loss
         fig.add_trace(go.Scatter(
-            x=loss_dta["Epoch"],
-            y=loss_dta["Validation Loss"],
-            name="Validation Loss",
-            mode="lines",
-            line=dict(color="#FFC107")
+            x=loss_dta["Epoch"], y=loss_dta["Validation Loss"], name="Validation Loss",
+            mode="lines", line=dict(color="#FFC107")
         ))
         # LR
         fig.add_trace(go.Scatter(
-            x=loss_dta["Epoch"],
-            y=loss_dta["Learning Rate"],
-            name="Learning Rate",
-            yaxis="y2",
-            mode="lines",
-            line=dict(color="#7952B3", dash="dash")
+            x=loss_dta["Epoch"], y=loss_dta["Learning Rate"], name="Learning Rate",
+            yaxis="y2", mode="lines", line=dict(color="#7952B3", dash="dash")
         ))
 
         fig.update_layout(
