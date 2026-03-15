@@ -11,7 +11,7 @@ from components.footer import footer
 
 font_awesome = "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
 
-app = dash.Dash(__name__, suppress_callback_exceptions=True, external_stylesheets=[dbc.themes.SLATE, font_awesome])
+app = dash.Dash(__name__, suppress_callback_exceptions=True, external_stylesheets=[dbc.themes.LUMEN, font_awesome])
 server = app.server
 
 app.title = 'FDK Prediction App'
@@ -23,8 +23,8 @@ app.layout = html.Div([
     dbc.NavbarSimple(children=[
         dbc.NavItem(dbc.NavLink('Training, Validation & Testing Insights', href='/train')),
         dbc.NavItem(dbc.NavLink('Prediction', href='/predict'))
-    ], brand=html.A('FDK Prediction App', href='/', style={'textDecoration': 'none', 'color': 'white'}),
-        color='primary', dark=True),
+    ], brand=html.A('FDK Prediction App', href='/', style={'textDecoration': 'none', 'color': 'dark'}),
+        color='light', dark=False),
     html.Div(id='page-content'),
 
     footer

@@ -14,6 +14,7 @@ import torch
 import torchvision.transforms as transforms
 from torchvision.models import efficientnet_b2
 import torch.nn as nn
+from sklearn.metrics import r2_score, mean_absolute_error
 from PIL import Image
 from pathlib import Path
 import base64
@@ -23,14 +24,15 @@ import cv2
 from pytorch_grad_cam import GradCAM
 from pytorch_grad_cam.utils.image import show_cam_on_image
 
-model_path = 'models/efficient_b2_model_retrain.pth'
+model_path = 'models/model_b2_aug_LRscheduler_WD_MAE.pth'
 
 device = torch.device('cpu')
 model = efficientnet_b2(weights=None)
 # regression layer
 model.classifier = nn.Sequential(
     nn.Dropout(p=0.2, inplace=True),
-    nn.Linear(model.classifier[-1].in_features, 1)
+    nn.Linear(model.classifier[1].in_features, 1),
+    nn.Sigmoid()
 )
 
 model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
@@ -38,81 +40,53 @@ model.to(device)
 model.eval()
 
 transform = transforms.Compose([
-    transforms.Resize((224, 224)),
+    transforms.Resize((260, 260)),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 
-
-# def fix_images_save(contents):
-#     if isinstance(contents, str):
-#         content_type, content_string = contents.split(',')
-#         img_bits = base64.b64decode(content_string)
-#         # fix and ensure RGB
-#         fixed_image = Image.open(io.BytesIO(img_bits)).convert('RGB')
-#     elif isinstance(contents, Image.Image):
-#         fixed_image = contents.convert('RGB')
-#     else:
-#         # above should fix decoding problem
-#         # not sure beyond this point
-#         raise TypeError('Unsupported format')
-#     return fixed_image
-
-# def convert_tif2png(tif_image):
-#     try:
-#         img_bit = Image.open(io.BytesIO(tif_image)).convert('RGB')
-#         png_buffer = io.BytesIO()
-#         img_bit.save(png_buffer, format='PNG')
-#
-#         return png_buffer.getvalue()
-#
-#     except Exception as e:
-#         print('Error converting .tif to .png: ', e)
-#         return None
-
-#
 
 
 def predict_image(image):
     image_tens = transform(image).unsqueeze(0).to(device)
 
     with torch.no_grad():
-        predicted_score = model(image_tens).item()
+        predicted_score = model(image_tens).item() * 100
 
     return predicted_score
 
 
+def remove_background(image):
+    # img = cv2.imread(image_path)
+    img = np.array(image)
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    kernel = np.ones((5, 5), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    mask = cv2.GaussianBlur(mask, (3, 3), 0)
+
+    result = cv2.bitwise_and(img, img, mask=mask)
+    result = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
+
+    return result
+
+
 def generate_gradcam(model, original_pil_img, img_tensor):
-    image_uint8 = np.array(original_pil_img.convert("RGB"))
-    image_float32 = image_uint8.astype(np.float32) / 255.0
+    img_float = np.float32(original_pil_img) / 255.0
 
-    # TODO: 2 is object specific, try -1 later - final feature extraction b4 pred
-    target_layers = [model.features[-1]]
-
+    target_layers = [model.features[7]]
     cam = GradCAM(model=model, target_layers=target_layers)
 
-    grayscale_cam = cam(input_tensor=img_tensor, targets=None)
+    grayscale_cam = cam(input_tensor=img_tensor, targets=None)[0, :]
+    grayscale_cam_resized = cv2.resize(grayscale_cam, (img_float.shape[1], img_float.shape[0]))
 
-    grayscale_cam = np.squeeze(grayscale_cam, axis=0)  # should be 7x7
+    visualization = show_cam_on_image(img_float, grayscale_cam_resized, use_rgb=False)
 
-    # some sanity check:
-    # 1. original_pil_img to np.array(original_pil_img) to image_float32 -should be
-    # original large size
-    # 2. image_tensor = transform(image).unsqueeze(0).to(device) (transforms to 224x224 for
-    # the model)
-    # 3. cam(input_tensor=img_tensor) to grayscale_cam - made on the 224x224 input
-    # show_cam_on_image function needs image_float32 to be the original image and grayscale_cam
-    # to be the CAM for that original image.
-    # show_cam_on_image resize grayscale_cam to match image_float32.
+    return visualization
 
-    target_width, target_height = original_pil_img.size
-    resized_grayscale_cam = cv2.resize(grayscale_cam, (target_width, target_height))
-
-    heatmap_overlay_cv = show_cam_on_image(image_float32, resized_grayscale_cam, use_rgb=True)
-
-    overlayed_pil_img = Image.fromarray(heatmap_overlay_cv)
-
-    return overlayed_pil_img
 
 
 def process_uploaded_images(img_contents, filenames):
@@ -120,7 +94,6 @@ def process_uploaded_images(img_contents, filenames):
     for i in range(len(img_contents)):
         content_type, content_string = img_contents[i].split(',')
         img_binary = base64.b64decode(content_string)
-        # Ensure image is in RGB format for consistency
         image = Image.open(io.BytesIO(img_binary)).convert("RGB")
 
         predicted_score = predict_image(image)
@@ -173,60 +146,95 @@ def generate_plots(df_for_plots):
 
     df_for_plots = df_for_plots.dropna(subset=['true_score_num_plot', 'predicted_score_num_plot'])
 
-    if not df_for_plots.empty and len(df_for_plots) >= 2:  # Need at least 2 points for regression
-        true_scores_array = df_for_plots['true_score_num_plot'].values.reshape(-1, 1)
-        predicted_scores_array = df_for_plots['predicted_score_num_plot'].values
+    df_for_plots['residual_score_num_plot'] = df_for_plots['true_score_num_plot'] - df_for_plots[
+        'predicted_score_num_plot']
 
-        try:
-            regressor = LinearRegression().fit(true_scores_array, predicted_scores_array)
-            regression_line = regressor.predict(true_scores_array)
-            df_for_plots['regression_line'] = regression_line
-            df_for_plots['residual_score_num_plot'] = df_for_plots['predicted_score_num_plot'] - df_for_plots[
-                'regression_line']
-        except ValueError as ve:
-            print(f"Could not perform regression: {ve}. Not enough samples or issue with data.")
-            df_for_plots['regression_line'] = np.nan
-            df_for_plots['residual_score_num_plot'] = np.nan
+    test_r_squared = r2_score(df_for_plots['true_score_num_plot'], df_for_plots['predicted_score_num_plot'])
+    MAE_test = mean_absolute_error(df_for_plots['true_score_num_plot'], df_for_plots['predicted_score_num_plot'])
 
-        # scatter
-        scatter_fig = px.scatter(df_for_plots, x='true_score_num_plot', y='predicted_score_num_plot',
-                                 title='Predicted vs True Scores',
-                                 labels={'true_score_num_plot': 'Actual Score',
-                                         'predicted_score_num_plot': 'Predicted Score'},
-                                 opacity=0.7, hover_data=['image_id'])
-        if 'regression_line' in df_for_plots.columns and not df_for_plots['regression_line'].isnull().all():
-            scatter_fig.add_trace(go.Scatter(x=df_for_plots['true_score_num_plot'], y=df_for_plots['regression_line'],
-                                             mode='lines', name='Regression Line', line=dict(color='green')))
-        scatter_fig.update_layout(
-            template='plotly_dark',
-            paper_bgcolor='#343a40',
-            plot_bgcolor='#343a40',
-            font=dict(color='white'),
-            xaxis=dict(gridcolor='gray'),
-            yaxis=dict(gridcolor='gray')
+    # scatter
+    scatter_fig = px.scatter(df_for_plots, x='true_score_num_plot', y='predicted_score_num_plot',
+                             title='Predicted vs True Scores',
+                             labels={'true_score_num_plot': 'Actual Score',
+                                     'predicted_score_num_plot': 'Predicted Score'},
+                             opacity=0.7, hover_data=['image_id'])
+
+    xymin = min(min(df_for_plots['true_score_num_plot']), min(df_for_plots['predicted_score_num_plot']), 0)
+    xymax = max(max(df_for_plots['true_score_num_plot']), max(df_for_plots['predicted_score_num_plot']))
+    line_range = [xymin, xymax]
+
+    scatter_fig.add_trace(
+        go.Scatter(line=dict(color='#FFC107', dash='dash'), x=line_range, y=line_range, mode='lines',
+                   showlegend=False))
+
+    scatter_fig.add_annotation(
+        x=10, y=max(df_for_plots['true_score_num_plot'])-10,
+        text=f'R²: {test_r_squared:.2f}<br>MAE: {np.round(MAE_test, 2)}',
+        showarrow=False, bgcolor='white', font=dict(color='#343a40', size=14)
+    )
+
+    scatter_fig.update_layout(
+        yaxis_title='True Score',
+        xaxis_title='Predicted Score',
+        hovermode='closest',
+        template='plotly_white',
+        showlegend=False,
+        font=dict(family="sans-serif", size=12, color="#495057"),
+        xaxis=dict(
+            showgrid=True,
+            gridcolor='#f8f9fa',
+            linecolor='#dee2e6'
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor='#f8f9fa',
+            zeroline=False
+        )
         )
 
-        # residual
-        residual_fig = px.scatter(
-            df_for_plots, x="true_score_num_plot", y="residual_score_num_plot",
-            title="Residuals vs True Scores",
-            labels={"true_score_num_plot": "Actual Score", "residual_score_num_plot": "Residual"},
-            color_discrete_sequence=['green'],
-            opacity=0.7, hover_data=['image_id'])
+    # residual
+    residual_fig = go.Figure()
 
-        residual_fig.update_layout(
-            template='plotly_dark',
-            paper_bgcolor='#343a40',
-            plot_bgcolor='#343a40',
-            font=dict(color='white'),
-            xaxis=dict(gridcolor='gray'),
-            yaxis=dict(gridcolor='gray')
+    residual_fig.add_trace(go.Scatter(
+        x=df_for_plots['true_score_num_plot'],
+        y=df_for_plots['residual_score_num_plot'],
+        mode='markers',
+        name='Residuals',
+        marker=dict(
+            color='red',
+            opacity=0.6,
+            line=dict(
+                color='white',
+                width=1
+            )
         )
+    ))
 
-    else:
-        print("Not enough valid data points for regression plots.")
-        scatter_fig = {}
-        residual_fig = {}
+    residual_fig.add_hline(
+        y=0,
+        line_dash="dash",
+        line_color="grey",
+        annotation_text="Zero Residuals",
+    )
+
+    residual_fig.update_layout(
+        template='plotly_white',
+        paper_bgcolor='rgba(0,30,0,0)',
+        plot_bgcolor='rgba(0,30,0,0)',
+        showlegend=False,
+        font=dict(family="sans-serif", size=12, color="#495057"),
+        xaxis=dict(
+            showgrid=True,
+            gridcolor='#f8f9fa',
+            linecolor='#dee2e6'
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor='#f8f9fa',
+            zeroline=False
+        )
+    )
+
 
     return scatter_fig, residual_fig
 
@@ -235,16 +243,31 @@ def generate_plots(df_for_plots):
 layout = dbc.Container([
     html.H2('Prediction', className='text-left mt-4 mb-4 '),
 
+    dbc.Modal([
+            dbc.ModalHeader(dbc.ModalTitle(" Upload Limit Reached")),
+            dbc.ModalBody([
+                html.P("The batch of images you selected is too large for the browser to process at once.", className="fw-bold"),
+                html.Ul([
+                    html.Li("Why? High-resolution images create massive data strings that crash browser memory."),
+                    html.Li("Limit: Please try uploading 50 images or fewer at a time."),
+                    html.Li("Fix: Converting images to JPG or resizing them before upload will allow for much larger batches.")
+                ])
+            ]),
+            dbc.ModalFooter(
+                dbc.Button("Got it", id="close_error_modal", className="ms-auto", n_clicks=0)
+            ),
+        ], id="error_modal", is_open=False, size="lg", centered=True),
+
     dbc.Row([
         dbc.Col([
             html.H5('Upload Images'),
             dcc.Loading(
                 id='loading_image_upload',
                 type='circle',
-                color='#f1f1f1',
+                color='#343a40',
                 children=[
                     html.Div(id='hidden_image_upload_output', style={'display': 'none'})
-                    # This will be the child updated by callback
+
                 ]
             ),
             dcc.Upload(id='image_upload',
@@ -264,12 +287,12 @@ layout = dbc.Container([
                           options=[{'label': 'Are true scores available?', 'value': 'true_scores'}],
                           value=[],
                           inline=True),
-            html.Div(id='csv_upload_section', style={'display': 'none'}, children=[  # hidden/shown
+            html.Div(id='csv_upload_section', style={'display': 'none'}, children=[
                 html.H5('Upload True Scores (CSV)'),
                 dcc.Loading(
                     id='loading_csv_upload',
                     type='circle',
-                    color='#f1f1f1',
+                    color='#343a40',
                     children=[
                         html.Div(id='hidden_csv_upload_output', style={'display': 'none'})
 
@@ -291,7 +314,7 @@ layout = dbc.Container([
             dcc.Loading(
                 id='loading_spinner',
                 type='circle',
-                color='#f1f1f1',
+                color='#343a40',
                 children=[html.Div(id='loading')]
             )
         ], width=6)
@@ -319,22 +342,17 @@ layout = dbc.Container([
 
         ], className='mb-4', id='single_img_contain', style={'display': 'flex', 'justifyContent': 'space-between'}),
 
-    # dbc.Row(
-    #     [
-    #         dbc.Col(html.Img(id='uploaded_img', style={'width': '80%', 'borderRadius': '10px'}), width=3),
-    #         dbc.Col(html.P(id='predicted_score'), width=3),
-    #         dbc.Col(html.Img(id='grad_cam_img', style={'width': '80%', 'borderRadius': '10px'}), width=3)
-    #     ],
-    #     id='single_img_contain'
-    # ),
 
     # multiple images
 
+
+    # no grad cam or uploaded image if multiple is selected
+    # it's just less stuff to deal with
+    # also better for speed.
+
     dbc.Row([
+        # table part
         dbc.Col([
-            # no grad cam or uploaded image if multiple is selected
-            # it's just less stuff to deal with
-            # also better for speed.
             dash_table.DataTable(
                 id='prediction_data_table_output',
                 columns=[
@@ -343,26 +361,27 @@ layout = dbc.Container([
                     {"name": "True Score", "id": "true_score"},
                     {"name": "Residual", "id": "residual_score"}
                 ],
-
+                page_size=10,
+                page_action='native',
                 style_table={'overflowX': 'auto', 'margin': '20px auto', 'width': '100%',
                              'boxShadow': '0 4px 8px rgba(0, 0, 0, 0.2)'},
                 style_header={
-                    'backgroundColor': '#343a40',
+                    'backgroundColor': '#2c3e50',
                     'color': 'white',
                     'fontWeight': 'bold',
                     'borderBottom': '1px solid #495057',
                     'padding': '8px'
                 },
                 style_data={
-                    'backgroundColor': '#343a40',
-                    'color': '#e9ecef',
-                    'borderBottom': '1px solid #495057',
+                    'backgroundColor': '#ffffff',
+                    'color': '#2c3e50',
+                    'borderBottom': '1px solid #dee2e6',
                     'padding': '8px'
                 },
                 style_data_conditional=[
                     {
                         'if': {'row_index': 'odd'},
-                        'backgroundColor': '#495057',
+                        'backgroundColor': '#f8f9fa',
                     }
                 ],
                 style_cell={
@@ -371,27 +390,26 @@ layout = dbc.Container([
                 },
                 style_as_list_view=True,
             )
-        ], width=6)
-    ], className='mb-4', id='multiple_img_contain', style={'display': 'none'}),
-
-    # plots for multiple upload only
-    dbc.Row(id='plots_area_container', style={'display': 'none'}, children=[
-        dbc.Col([
-            html.Label('Visualize Plots'),
-            dcc.Dropdown(
-                id='plot_dropdown',
-                options=[{'label': 'Scatter Plot', 'value': 'test_scatter'},
-                         {'label': 'Residual Plot', 'value': 'residual_plot'}],
-                value='test_scatter', style={
-                    'backgroundColor': '#495057',
-                    'color': 'black'
-                }
-            ),
-            dcc.Graph(id='display_plot_graph')
         ], width=6),
 
-    ])
-    # dcc.Store(id='stored_prediction_data')
+        # Plot part
+        dbc.Col([
+            html.Div(id='plots_area_container', style={'display': 'none'}, children=[
+                html.Label('Visualize Plots'),
+                dcc.Dropdown(
+                    id='plot_dropdown',
+                    options=[{'label': 'Scatter Plot', 'value': 'scatter_plot'},
+                             {'label': 'Residual Plot', 'value': 'residual_plot'}],
+                    value='test_scatter',
+                    style={'color': 'black'}
+                ),
+                dcc.Graph(id='display_plot_graph', style={'height': '450px'})
+            ])
+        ], width=6)
+
+    ], className='mb-4', id='multiple_img_contain', style={'display': 'none'}),
+
+    dcc.Store(id='stored_results')
 ])
 
 
@@ -405,22 +423,46 @@ def load_true_scores(check_value):
 
 
 @dash.callback(
+    Output('error_modal', 'is_open'),
+    Output('predict_button', 'disabled'),
+    Input('image_upload', 'filename'),
+    Input('close_error_modal', 'n_clicks'),
+    State('error_modal', 'is_open'),
+    prevent_initial_call=True
+)
+def handle_upload_limit(filenames, n_clicks, is_open):
+    ctx = dash.callback_context
+    trigger_id = ctx.triggered_id
+
+    if trigger_id == 'close_error_modal':
+        return False, dash.no_update
+
+    if filenames and len(filenames) > 50:
+        return True, True
+
+    return False, False
+
+
+
+
+@dash.callback(
     Output('upload_feedback', 'children'),
     Output('csv_upload_feedback', 'children'),
     Output('hidden_image_upload_output', 'children'),
     Output('hidden_csv_upload_output', 'children'),
-    Input('image_upload', 'contents'),
+    Input('image_upload', 'filename'),
     State('image_upload', 'filename'),
     Input('csv_upload', 'contents'),
     State('csv_upload', 'filename')
 )
 def give_upload_feedback(img_contents, img_filenames, csv_contents, csv_filename):
     img_feedback = 'No image uploaded.'
-    hidden_img_output = ''  # Default for hidden output
-    if img_contents:
+    hidden_img_output = ''
+    if img_filenames:  # used to fix 'invalid str' bug. now it checks list of names
         img_count = len(img_filenames) if isinstance(img_filenames, list) else 1
         img_feedback = f'Uploaded {img_count} image(s).'
         hidden_img_output = 'Image upload completed.'
+
 
     csv_feedback = 'No CSV uploaded.'
     hidden_csv_output = ''  # Default for hidden output
@@ -442,6 +484,7 @@ def give_upload_feedback(img_contents, img_filenames, csv_contents, csv_filename
     Output('multiple_img_contain', 'style'),
     Output('plots_area_container', 'style'),
     Output('display_plot_graph', 'figure'),
+    Output('stored_results', 'data'),
     # Output('residual', 'figure'),
     Input('predict_button', 'n_clicks'),
     # Input('plot_dropdown', 'value'),
@@ -484,19 +527,24 @@ def process_and_predict(n_clicks, img_contents, filenames, upload_type, true_sco
     if 'true_scores' in true_scores_available:
         df_merged = process_true_scores_csv(csv_contents, csv_filename, df_predicted)
 
-    display_plot_figure = go.Figure().update_layout(template="plotly_dark", plot_bgcolor='#343a40',
-                                                    paper_bgcolor='#343a40', font_color='white')
+    display_plot_figure = go.Figure().update_layout(template="plotly_white", paper_bgcolor='rgba(0,30,0,0)',
+                      plot_bgcolor='rgba(0,30,0,0)',
+                      font=dict(family="sans-serif", size=12, color="#495057"))
 
     if upload_type == 'single' or len(img_contents) == 1:
         # Single image display logic
         current_image_content_type, current_image_content_string = img_contents[0].split(',')
         current_image = Image.open(io.BytesIO(base64.b64decode(current_image_content_string))).convert("RGB")
+
+        no_bkg_image = remove_background(current_image)
+
         image_tensor = transform(current_image).unsqueeze(0).to(device)
 
-        gradcam_overlay_pil = generate_gradcam(model, current_image, image_tensor)
-        gradcam_bytes = io.BytesIO()
-        gradcam_overlay_pil.save(gradcam_bytes, format="PNG")
-        grad_cam_b64 = f"data:image/png;base64,{base64.b64encode(gradcam_bytes.getvalue()).decode()}"
+        gradcam_overlay_pil = generate_gradcam(model, no_bkg_image, image_tensor)
+        result_pil = Image.fromarray(gradcam_overlay_pil)
+        buffer = io.BytesIO()
+        result_pil.save(buffer, format='PNG')
+        grad_cam_b64 = f"data:image/png;base64,{base64.b64encode(buffer.getvalue()).decode()}"
 
         # Handle original image display (especially for .tif conversion)
         original_img_bytes = io.BytesIO()
@@ -515,7 +563,7 @@ def process_and_predict(n_clicks, img_contents, filenames, upload_type, true_sco
     else:
         # multiple
         single_img_display = {'display': 'none'}
-        multiple_img_display = {'display': 'block'}
+        multiple_img_display = {'display': 'flex'}
 
         predicted_score_text = "See table below for predictions"
         uploaded_b64 = None
@@ -523,9 +571,6 @@ def process_and_predict(n_clicks, img_contents, filenames, upload_type, true_sco
         table_data_for_dcc_datatable = df_merged.to_dict('records')
         heatmap_label_style = {'display': 'none'}
 
-        # for dcc store
-        # df_merged_json = df_merged.to_json(date_format='iso', orient='split')
-        # print(df_merged)
 
         if ('true_scores' in true_scores_available and 'true_score'
                 in df_merged.columns and df_merged['true_score'].notna().any()):
@@ -550,48 +595,26 @@ def process_and_predict(n_clicks, img_contents, filenames, upload_type, true_sco
             single_img_display,
             multiple_img_display,
             plots_area_container_style,
-            display_plot_figure
+            display_plot_figure,
+            df_merged.to_dict('records')
             )
 
 
 @dash.callback(
     Output('display_plot_graph', 'figure', allow_duplicate=True),
     Input('plot_dropdown', 'value'),
-    State('image_upload', 'contents'),
-    State('image_upload', 'filename'),
-    State('upload_type', 'value'),
-    State('check_true_score', 'value'),
-    State('csv_upload', 'contents'),
-    State('csv_upload', 'filename'),
-    prevent_initial_call='callback-triggered'  # only works when dropdown or button is clicked
+    State('stored_results', 'data'),
+    prevent_initial_call=True
 )
-def update_plot_on_dropdown_change(selected_plot, img_contents, filenames, upload_type, true_scores_available,
-                                   csv_contents, csv_filename):
-    # TODO: Plot reloads when dropdown is selected - fix
+def update_plot_on_dropdown_change(selected_plot, stored_data):
+    if not stored_data:
+        return go.Figure()
 
-    if upload_type == 'single' or not img_contents:
-        # If in single mode or no images, no plots should be shown
-        return go.Figure().update_layout(title="No Plots in Single Mode / No Images", template="plotly_dark",
-                                         plot_bgcolor='#343a40', paper_bgcolor='#343a40', font_color='white')
+    df = pd.DataFrame(stored_data)
 
-    if not isinstance(img_contents, list):
-        img_contents = [img_contents]
-        filenames = [filenames]
+    scatter_fig, residual_fig = generate_plots(df)
 
-    df_predicted = process_uploaded_images(img_contents, filenames)
-    df_merged = df_predicted.copy()
-
-    if 'true_scores' in true_scores_available:
-        df_merged = process_true_scores_csv(csv_contents, csv_filename, df_predicted)
-
-    if ('true_scores' in true_scores_available and 'true_score' in df_merged.columns and
-            pd.to_numeric(df_merged['true_score'], errors='coerce').notna().any()):
-        scatter_fig, residual_fig = generate_plots(df_merged)
-
-        if selected_plot == 'scatter_plot':
-            return scatter_fig
-        elif selected_plot == 'residual_plot':
-            return residual_fig
-
-    return go.Figure().update_layout(title="Not enough data for plots", template="plotly_dark", plot_bgcolor='#343a40',
-                                     paper_bgcolor='#343a40', font_color='white')
+    if selected_plot == 'scatter_plot':
+        return scatter_fig
+    else:
+        return residual_fig
