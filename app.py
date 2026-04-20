@@ -7,19 +7,23 @@ import pages.welcome as welcome
 import pages.train_val as train_val
 import pages.prediction as prediction
 
+# has my information
 from components.footer import footer
 
 font_awesome = "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
 
+# set up theme - LUMEN
 app = dash.Dash(__name__, suppress_callback_exceptions=True, external_stylesheets=[dbc.themes.LUMEN, font_awesome])
 server = app.server
 
+# app name
 app.title = 'FDK Prediction App'
 
 # Layout
 app.layout = html.Div([
     dcc.Location(id='url', refresh=False),
 
+    # nav pages
     dbc.NavbarSimple(children=[
         dbc.NavItem(dbc.NavLink('Training, Validation & Testing Insights', href='/train')),
         dbc.NavItem(dbc.NavLink('Prediction', href='/predict'))
