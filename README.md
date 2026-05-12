@@ -21,17 +21,6 @@ This repository contains an end-to-end computer vision service designed to autom
 * **Deployment:** Render, Gunicorn
 * **Data Handling:** NumPy, Pandas
 
-### Project Structure
-```text
-├── data/               # Training and validation results
-├── models/             # Model architecture (EfficientNet-B2) and inference logic
-├── pages/              # Training and validation summary, new image prediction, and Grad-CAM implementation
-├── components/         # footer.py
-├── assets/             # CSS and static images for the dashboard
-├── app.py              # Main Dash application and layout
-├── requirements.txt    # Production dependencies
-└── Procfile            # Deployment configuration for Render
-```
 
 ### Methodology
 #### Data & Training
