@@ -29,6 +29,7 @@ This repository contains an end-to-end computer vision service designed to autom
 ├── assets/             # CSS and static images for the dashboard
 ├── requirements.txt    # Production dependencies
 └── Procfile            # Deployment configuration for Render
+```
 
 ### Methodology
 #### Data & Training
