@@ -23,10 +23,12 @@ This repository contains an end-to-end computer vision service designed to autom
 
 ### Project Structure
 ```text
-├── app.py              # Main Dash application and layout
-├── model.py            # Model architecture (EfficientNet-B2) and inference logic
-├── utils.py            # Image preprocessing and Grad-CAM implementation
+├── data/               # Training and validation results
+├── models/             # Model architecture (EfficientNet-B2) and inference logic
+├── pages/              # Training and validation summary, new image prediction, and Grad-CAM implementation
+├── components/         # footer.py
 ├── assets/             # CSS and static images for the dashboard
+├── app.py              # Main Dash application and layout
 ├── requirements.txt    # Production dependencies
 └── Procfile            # Deployment configuration for Render
 ```
