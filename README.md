@@ -10,7 +10,7 @@ This repository contains an end-to-end computer vision service designed to autom
 
 ### Key Features
 * Deep Learning Engine: Utilizes a fine-tuned EfficientNet-B2 architecture for disease scoring.
-* Explainable AI: Integrated Grad-CAM (Gradient-weighted Class Activation Mapping) to visualize and identify the specific morphological features driving model predictions.
+* Explainable AI: Integrated Grad-CAM (Gradient-weighted Class Activation Mapping) to visualize and identify the specific morphological and spectral features driving model predictions.
 * Interactive Web Service: A full-stack Dash application that enables non-technical stakeholders to upload grain images and receive real-time, automated scores.
 * Production Ready: Architected for cloud deployment with robust handling for real-time inference.
 
@@ -24,10 +24,10 @@ This repository contains an end-to-end computer vision service designed to autom
 
 ### Methodology
 #### Data & Training
-The model was trained on high-dimensional wheat grain features, optimized to distinguish between healthy kernels and various levels of fungal damage.
+The model was trained on wheat grain images, optimized to distinguish between healthy kernels and various levels of fungal damage.
 
 #### Interpretability
-To ensure the model is "scientist-in-the-loop" friendly, Grad-CAM overlays highlight fungal lesions or shriveled areas, allowing users to verify that the model is focusing on relevant biological indicators rather than background noise.
+To ensure the model's interpretability, Grad-CAM overlays highlight the model's areas of interest, allowing users to verify that the model is focusing on relevant biological indicators rather than background noise.
 
 ### Getting Started
 1. Clone the repository.
